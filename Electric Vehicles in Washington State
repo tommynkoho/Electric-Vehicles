@@ -1,0 +1,458 @@
+from google.colab import drive
+drive.mount('/content/drive')
+import os
+
+os.chdir('/content/drive/MyDrive')
+
+print(os.getcwd())
+
+# ===========================================================
+# WASHINGTON EV ADOPTION & CHARGING DEMAND FORECAST PROJECT
+# ===========================================================
+
+# Imports
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.cluster import DBSCAN
+
+# ===========================================================
+# 1. LOAD DATA
+# ===========================================================
+
+df = pd.read_csv("export.csv")
+
+print("\n================== DATA OVERVIEW ==================")
+print("Rows:", len(df))
+print("Columns:", len(df.columns))
+
+print("\nColumns:")
+print(df.columns.tolist())
+
+# ===========================================================
+# 2. BEV VS PHEV ANALYSIS
+# ===========================================================
+
+print("\n================== EV TYPE ==================")
+
+ev_type = df["Electric Vehicle Type"].value_counts()
+
+print(ev_type)
+
+plt.figure(figsize=(8,5))
+
+ev_type.plot(
+    kind="bar",
+    color=["steelblue", "orange"]
+)
+
+plt.title("BEV vs PHEV")
+plt.ylabel("Vehicle Count")
+
+plt.tight_layout()
+plt.show()
+
+# ===========================================================
+# 3. TOP MANUFACTURERS
+# ===========================================================
+
+print("\n================== TOP MAKES ==================")
+
+top_makes = df["Make"].value_counts().head(10)
+
+print(top_makes)
+
+plt.figure(figsize=(10,6))
+
+top_makes.plot(kind="bar")
+
+plt.title("Top 10 EV Manufacturers")
+
+plt.ylabel("Vehicles")
+
+plt.tight_layout()
+
+plt.show()
+
+# ===========================================================
+# 4. EV ADOPTION BY MODEL YEAR
+# ===========================================================
+
+print("\n================== EV GROWTH ==================")
+
+annual_ev = (
+    df.groupby("Model Year")
+      .size()
+      .reset_index(name="EV_Count")
+      .sort_values("Model Year")
+)
+
+print(annual_ev.tail())
+
+plt.figure(figsize=(12,6))
+
+plt.plot(
+    annual_ev["Model Year"],
+    annual_ev["EV_Count"],
+    marker="o"
+)
+
+plt.title("EV Registrations by Model Year")
+
+plt.xlabel("Model Year")
+
+plt.ylabel("Vehicle Count")
+
+plt.grid(True)
+
+plt.tight_layout()
+
+plt.show()
+
+# ===========================================================
+# 5. COUNTY ANALYSIS
+# ===========================================================
+
+print("\n================== TOP COUNTIES ==================")
+
+county_counts = (
+    df.groupby("County")
+      .size()
+      .sort_values(ascending=False)
+)
+
+print(county_counts.head(20))
+
+plt.figure(figsize=(12,6))
+
+county_counts.head(15).plot(
+    kind="bar",
+    color="green"
+)
+
+plt.title("Top 15 Counties")
+
+plt.ylabel("Vehicle Count")
+
+plt.tight_layout()
+
+plt.show()
+
+# ===========================================================
+# 6. AVERAGE RANGE BY MODEL YEAR
+# ===========================================================
+
+print("\n================== RANGE TRENDS ==================")
+
+range_by_year = (
+    df.groupby("Model Year")["Electric Range"]
+      .mean()
+      .reset_index()
+)
+
+plt.figure(figsize=(12,6))
+
+plt.plot(
+    range_by_year["Model Year"],
+    range_by_year["Electric Range"]
+)
+
+plt.title("Average Electric Range by Model Year")
+
+plt.xlabel("Model Year")
+
+plt.ylabel("Average Range (Miles)")
+
+plt.grid()
+
+plt.tight_layout()
+
+plt.show()
+
+# ===========================================================
+# 7. CHARGING DEMAND ESTIMATION
+# ===========================================================
+
+print("\n================== CHARGING DEMAND ==================")
+
+AVG_ANNUAL_MILES = 12000
+KWH_PER_MILE = 0.30
+
+county_demand = (
+    df.groupby("County")
+      .size()
+      .reset_index(name="EVs")
+)
+
+county_demand["Annual_kWh"] = (
+    county_demand["EVs"]
+    * AVG_ANNUAL_MILES
+    * KWH_PER_MILE
+)
+
+county_demand = county_demand.sort_values(
+    "Annual_kWh",
+    ascending=False
+)
+
+print(county_demand.head(10))
+
+# ===========================================================
+# 8. ESTIMATED CHARGERS NEEDED
+# ===========================================================
+
+print("\n================== CHARGERS NEEDED ==================")
+
+EVS_PER_CHARGER = 25
+
+county_demand["Chargers_Needed"] = (
+    county_demand["EVs"]
+    / EVS_PER_CHARGER
+).round()
+
+print(
+    county_demand[
+        ["County",
+         "EVs",
+         "Chargers_Needed"]
+    ].head(15)
+)
+
+# ===========================================================
+# 9. SIMPLE FORECAST TO 2030
+# ===========================================================
+
+print("\n================== FORECAST ==================")
+
+x = annual_ev["Model Year"]
+y = annual_ev["EV_Count"]
+
+coef = np.polyfit(x, y, deg=2)
+
+future_years = np.arange(
+    x.max() + 1,
+    2031
+)
+
+forecast_counts = np.polyval(
+    coef,
+    future_years
+)
+
+forecast_df = pd.DataFrame({
+    "Year": future_years,
+    "Forecast_EV_Count": forecast_counts.astype(int)
+})
+
+print(forecast_df)
+
+plt.figure(figsize=(12,6))
+
+plt.scatter(
+    annual_ev["Model Year"],
+    annual_ev["EV_Count"],
+    label="Actual"
+)
+
+plt.plot(
+    future_years,
+    forecast_counts,
+    color="red",
+    label="Forecast"
+)
+
+plt.title("EV Adoption Forecast")
+
+plt.xlabel("Year")
+
+plt.ylabel("Vehicles")
+
+plt.legend()
+
+plt.grid()
+
+plt.tight_layout()
+
+plt.show()
+
+# ===========================================================
+# 10. GEOGRAPHIC HOTSPOTS
+# ===========================================================
+
+print("\n================== HOTSPOTS ==================")
+
+coords = (
+    df["Vehicle Location"]
+      .dropna()
+      .str.extract(
+          r"POINT \(([-0-9.]+) ([-0-9.]+)\)"
+      )
+)
+
+coords.columns = ["lon", "lat"]
+
+coords = coords.astype(float)
+
+sample_size = min(50000, len(coords))
+
+coords = coords.sample(
+    sample_size,
+    random_state=42
+)
+
+clustering = DBSCAN(
+    eps=.15,
+    min_samples=50
+)
+
+coords["Cluster"] = clustering.fit_predict(
+    coords[["lat", "lon"]]
+)
+
+print(
+    coords["Cluster"]
+    .value_counts()
+    .head()
+)
+
+plt.figure(figsize=(8,8))
+
+plt.scatter(
+    coords["lon"],
+    coords["lat"],
+    c=coords["Cluster"],
+    s=5,
+    cmap="tab20"
+)
+
+plt.title("EV Geographic Clusters")
+
+plt.xlabel("Longitude")
+
+plt.ylabel("Latitude")
+
+plt.tight_layout()
+
+plt.show()
+
+# ===========================================================
+# 11. RANDOM FOREST MODEL
+# PREDICT ELECTRIC RANGE
+# ===========================================================
+
+print("\n================== MACHINE LEARNING ==================")
+
+features = [
+    "Make",
+    "Model",
+    "Model Year",
+    "Electric Vehicle Type"
+]
+
+target = "Electric Range"
+
+ml_df = df[
+    features + [target]
+].dropna()
+
+X = ml_df[features]
+y = ml_df[target]
+
+categorical = [
+    "Make",
+    "Model",
+    "Electric Vehicle Type"
+]
+
+preprocessor = ColumnTransformer(
+    transformers=[
+        (
+            "cat",
+            OneHotEncoder(
+                handle_unknown="ignore"
+            ),
+            categorical
+        )
+    ],
+    remainder="passthrough"
+)
+
+pipeline = Pipeline([
+    ("prep", preprocessor),
+    (
+        "rf",
+        RandomForestRegressor(
+            n_estimators=100,
+            random_state=42
+        )
+    )
+])
+
+X_train, X_test, y_train, y_test = (
+    train_test_split(
+        X,
+        y,
+        test_size=.2,
+        random_state=42
+    )
+)
+
+pipeline.fit(
+    X_train,
+    y_train
+)
+
+score = pipeline.score(
+    X_test,
+    y_test
+)
+
+print(
+    "\nR² Score:",
+    round(score, 3)
+)
+
+# ===========================================================
+# 12. EXECUTIVE METRICS
+# ===========================================================
+
+print("\n================== EXECUTIVE SUMMARY ==================")
+
+total_evs = len(df)
+
+bev_share = (
+    (
+        df["Electric Vehicle Type"]
+        ==
+        "Battery Electric Vehicle (BEV)"
+    ).mean()
+) * 100
+
+tesla_share = (
+    (
+        df["Make"]
+        ==
+        "TESLA"
+    ).mean()
+) * 100
+
+average_range = (
+    df["Electric Range"]
+      .mean()
+)
+
+print(f"Total EVs: {total_evs:,}")
+
+print(f"BEV Share: {bev_share:.1f}%")
+
+print(f"Tesla Share: {tesla_share:.1f}%")
+
+print(f"Average Range: {average_range:.1f} miles")
+
+print("\nPROJECT COMPLETE")
